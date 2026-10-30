@@ -11,6 +11,7 @@ Writes: results/llm_raw.jsonl (cache, makes runs resumable), results/preds_llm.p
 """
 import argparse
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -40,7 +41,7 @@ def parse_vector(text: str) -> tuple[dict, bool]:
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)   # strip reasoning blocks
     values = {}
     for k, allowed in ALLOWED.items():
-        m = re.search(rf"\b{k}:([{allowed}])\b", text)
+        m = re.search(rf"(?<![A-Z]){k}:([{allowed}])\b", text)
         values[k] = m.group(1) if m else None
     return values, all(v is not None for v in values.values())
 
@@ -61,19 +62,19 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=Path("results"))
     p.add_argument("--n", type=int, default=300)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--model", default=None, help="LM Studio model id (default: first loaded model)")
-    p.add_argument("--url", default="http://localhost:1234/v1")
+    p.add_argument("--model", default=os.environ.get("LLM_MODEL"), help="LM Studio model id (default: first loaded)")
+    p.add_argument("--url", default=os.environ.get("LLM_URL", "http://localhost:1234/v1"))
     p.add_argument("--max-tokens", type=int, default=64, help="raise to ~2048 for reasoning models")
     args = p.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
     client = OpenAI(base_url=args.url, api_key="lm-studio")
     model = args.model or client.models.list().data[0].id
-    print(f"Model: {model}")
+    print(f"Model: {model} @ {args.url}")
 
     train = pd.read_parquet(args.data / "train.parquet")
     test = pd.read_parquet(args.data / "test.parquet")
-    sample = test.sample(n=args.n, random_state=args.seed).reset_index(drop=True)
+    sample = test.sample(n=min(args.n, len(test)), random_state=args.seed).reset_index(drop=True)
     sample = add_scores(sample)
     fallback = {k: train[k].mode()[0] for k in METRICS}
 

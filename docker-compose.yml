@@ -1,0 +1,109 @@
+# CVEscore pipeline. Tuned for one RTX 5080 (16 GB) + Ryzen 7 9800X3D (8 cores) + 32 GB RAM.
+#
+#   docker compose up evaluate                  # data -> baselines + training -> evaluation
+#   docker compose --profile llm up evaluate    # same, plus the zero-shot LLM baseline (LM Studio on host)
+#   docker compose run --rm smoke               # 1-minute GPU/setup check
+#   docker compose --profile demo up demo       # Gradio demo on http://localhost:7860
+#   docker compose run --rm push                # upload model to Hugging Face (needs HF_TOKEN, HF_REPO)
+#
+# Settings can be overridden in a .env file (see .env.example).
+
+x-common: &common
+  build: .
+  image: cvescore:latest
+  user: "${UID:-1000}:${GID:-1000}"
+  volumes:
+    - ./data:/app/data
+    - ./results:/app/results
+    - ./checkpoints:/app/checkpoints
+    - hf-cache:/cache/huggingface
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  # 1. Download NVD feeds (skips unchanged ones) and build the time-split parquet files
+  data:
+    <<: *common
+    command: sh -c "python src/fetch_nvd.py --start ${START_YEAR:-2015} && python src/prepare_data.py --test-start ${TEST_START:-2025-01-01}"
+
+  # 2a. CPU baselines: majority class + TF-IDF/LogReg (8 parallel jobs = 8 cores)
+  baselines:
+    <<: *common
+    command: python src/baselines.py --n-jobs 8
+    depends_on:
+      data: { condition: service_completed_successfully }
+
+  # 2b. Optional zero-shot LLM baseline through LM Studio on the host.
+  #     Runs before training so the LLM and DeBERTa never share the 16 GB of VRAM.
+  llm:
+    <<: *common
+    profiles: [llm]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      LLM_URL: ${LLM_URL:-http://host.docker.internal:1234/v1}
+      LLM_MODEL: ${LLM_MODEL:-}
+    command: python src/llm_baseline.py --n ${LLM_N:-300} --max-tokens ${LLM_MAX_TOKENS:-64}
+    depends_on:
+      data: { condition: service_completed_successfully }
+
+  # 3. Fine-tuning. bf16 autocast, batch 32 at max 256 tokens fits comfortably in 16 GB.
+  train:
+    <<: [*common, *gpu]
+    shm_size: 8gb            # DataLoader workers share batches through /dev/shm
+    environment:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    command: >
+      python src/train.py
+      --model ${MODEL:-microsoft/deberta-v3-base}
+      --run-name ${RUN_NAME:-deberta}
+      --epochs ${EPOCHS:-3}
+      --batch-size ${BATCH_SIZE:-32}
+      --lr ${LR:-2e-5}
+      --max-length 256
+      --num-workers 4
+    depends_on:
+      data: { condition: service_completed_successfully }
+      llm: { condition: service_completed_successfully, required: false }
+
+  # 4. Comparison tables + plots -> results/results.md
+  evaluate:
+    <<: *common
+    command: python src/evaluate.py
+    depends_on:
+      baselines: { condition: service_completed_successfully }
+      train: { condition: service_completed_successfully }
+      llm: { condition: service_completed_successfully, required: false }
+
+  # Quick end-to-end check of GPU + code on 2,000 CVEs (needs data already prepared)
+  smoke:
+    <<: [*common, *gpu]
+    profiles: [smoke]
+    shm_size: 2gb
+    command: python src/train.py --limit 2000 --epochs 1 --run-name smoke --num-workers 2
+
+  # Gradio demo
+  demo:
+    <<: [*common, *gpu]
+    profiles: [demo]
+    environment:
+      CKPT: checkpoints/${RUN_NAME:-deberta}
+    ports: ["7860:7860"]
+    command: python app.py
+
+  # Upload the trained model + generated model card to Hugging Face
+  push:
+    <<: *common
+    profiles: [ship]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    command: python scripts/push_to_hub.py --repo ${HF_REPO:?set HF_REPO in .env} --run-name ${RUN_NAME:-deberta}
+
+volumes:
+  hf-cache:

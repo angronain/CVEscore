@@ -1,0 +1,15 @@
+# PyTorch is installed separately from the CUDA 12.8 index (required for RTX 50-series / Blackwell):
+#   pip install "torch>=2.7" --index-url https://download.pytorch.org/whl/cu128
+transformers>=4.48,<5
+sentencepiece
+protobuf
+accelerate
+pandas>=2.2
+pyarrow
+scikit-learn>=1.4
+joblib
+cvss>=3.1
+matplotlib
+openai>=1.0
+gradio>=4.40,<6
+huggingface_hub

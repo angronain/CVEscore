@@ -7,7 +7,7 @@ Usage:
     python src/train.py --model answerdotai/ModernBERT-base --run-name modernbert
 
 Writes: checkpoints/<run-name>/ (best model), results/preds_<run-name>.parquet,
-        results/<run-name>.json (history + test metrics)
+        results/probs_<run-name>.npz, results/<run-name>.json (history + test metrics)
 """
 import argparse
 import json
@@ -51,8 +51,8 @@ def make_collate(tokenizer):
     return collate
 
 
-def validate(model, tokenizer, val: pd.DataFrame, max_length: int) -> dict:
-    probs = predict_proba(model, tokenizer, val["description"].tolist(), max_length)
+def validate(model, tokenizer, val: pd.DataFrame, max_length: int, device: str) -> dict:
+    probs = predict_proba(model, tokenizer, val["description"].tolist(), max_length, device=device)
     pred = probs_to_frame(probs)
     f1s = {k: f1_score(val[k], pred[k], average="macro") for k in METRICS}
     exact = (val[METRICS].values == pred[METRICS].values).all(axis=1).mean()
@@ -76,13 +76,19 @@ def main() -> None:
     p.add_argument("--max-length", type=int, default=256)
     p.add_argument("--val-start", default="2024-10-01", help="train CVEs published after this go to validation")
     p.add_argument("--evals-per-epoch", type=int, default=2)
+    p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--limit", type=int, default=None, help="subsample train/val/test for a quick smoke test")
+    p.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="cpu only for smoke tests")
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
 
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
-    device = "cuda"
-    assert torch.cuda.is_available(), "CUDA not available: check the cu128 PyTorch install"
+    device = args.device
+    if device == "cuda":
+        assert torch.cuda.is_available(), "CUDA not available: check the cu128 PyTorch install / GPU passthrough"
+        print(f"GPU: {torch.cuda.get_device_name()}")
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     # ---- Data: time-based train / validation / test ----
     full = pd.read_parquet(args.data / "train.parquet")
@@ -91,15 +97,16 @@ def main() -> None:
     train = full[full["published"] < args.val_start].reset_index(drop=True)
     if args.limit:
         train = train.sample(min(args.limit, len(train)), random_state=args.seed)
-        val = val.sample(min(args.limit // 4, len(val)), random_state=args.seed)
-        test = test.sample(min(args.limit // 4, len(test)), random_state=args.seed)
+        val = val.sample(min(max(args.limit // 4, 1), len(val)), random_state=args.seed)
+        test = test.sample(min(max(args.limit // 4, 1), len(test)), random_state=args.seed)
     test = add_scores(test.reset_index(drop=True))
     print(f"train {len(train):,} | val {len(val):,} | test {len(test):,}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     train_ds = CVEDataset(train, tokenizer, args.max_length)
     loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                        collate_fn=make_collate(tokenizer), num_workers=2, pin_memory=True)
+                        collate_fn=make_collate(tokenizer), num_workers=args.num_workers,
+                        pin_memory=(device == "cuda"), persistent_workers=args.num_workers > 0)
 
     # ---- Model + optimizer: small LR for the pretrained encoder, larger for the new heads ----
     model = CVSSModel(args.model).to(device)
@@ -121,7 +128,7 @@ def main() -> None:
         for input_ids, attention_mask, labels in loader:
             input_ids, attention_mask, labels = (t.to(device, non_blocking=True)
                                                  for t in (input_ids, attention_mask, labels))
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.autocast(device_type=device, dtype=torch.bfloat16):
                 logits = model(input_ids, attention_mask)
             # Sum of the 8 cross-entropies, computed in fp32 for stability
             loss = sum(F.cross_entropy(logits[k].float(), labels[:, j]) for j, k in enumerate(METRICS))
@@ -136,31 +143,36 @@ def main() -> None:
             running += loss.item()
             if step % 100 == 0:
                 print(f"epoch {epoch + 1} step {step}/{total_steps} loss {running / 100:.4f} "
-                      f"({(time.time() - t_start) / 60:.1f} min)")
+                      f"({(time.time() - t_start) / 60:.1f} min)", flush=True)
                 running = 0.0
 
             if step % eval_every == 0 or step == total_steps:
-                metrics = validate(model, tokenizer, val, args.max_length)
+                metrics = validate(model, tokenizer, val, args.max_length, device)
                 metrics.update(step=step, epoch=epoch + 1)
                 history.append(metrics)
-                print(f"  [val] mean macro F1 {metrics['mean_macro_f1']:.4f} | exact {metrics['exact']:.4f}")
+                print(f"  [val] mean macro F1 {metrics['mean_macro_f1']:.4f} | exact {metrics['exact']:.4f}",
+                      flush=True)
                 if metrics["mean_macro_f1"] > best:
                     best = metrics["mean_macro_f1"]
                     model.save(run_dir, tokenizer, {"base_model": args.model, "max_length": args.max_length,
                                                     "val_start": args.val_start, "best_val": metrics})
-                    print(f"  saved best checkpoint to {run_dir}")
+                    print(f"  saved best checkpoint to {run_dir}", flush=True)
                 model.train()
 
     # ---- Test the best checkpoint ----
     print("\nEvaluating best checkpoint on test...")
     del model
-    torch.cuda.empty_cache()
+    if device == "cuda":
+        torch.cuda.empty_cache()
     model, tokenizer, _ = CVSSModel.load(run_dir, device)
-    predict_proba(model, tokenizer, test["description"].tolist()[:256], args.max_length)  # GPU warmup
-    torch.cuda.synchronize()
+    texts = test["description"].tolist()
+    predict_proba(model, tokenizer, texts[:256], args.max_length, device=device)   # warmup
+    if device == "cuda":
+        torch.cuda.synchronize()
     t0 = time.perf_counter()
-    probs = predict_proba(model, tokenizer, test["description"].tolist(), args.max_length)
-    torch.cuda.synchronize()
+    probs = predict_proba(model, tokenizer, texts, args.max_length, device=device)
+    if device == "cuda":
+        torch.cuda.synchronize()
     seconds = time.perf_counter() - t0
 
     pred = probs_to_frame(probs)
@@ -169,13 +181,13 @@ def main() -> None:
     results = evaluate(test, pred, seconds)
     args.out.mkdir(parents=True, exist_ok=True)
     save_preds(args.run_name, test, pred, args.out)
-    np.savez(args.out / f"probs_{args.run_name}.npz", **probs)   # raw probabilities for calibration plots
+    np.savez(args.out / f"probs_{args.run_name}.npz", ids=test["id"].values, **probs)
     (args.out / f"{args.run_name}.json").write_text(json.dumps(
         {"args": {k: str(v) for k, v in vars(args).items()}, "history": history, "test": results}, indent=2))
 
     print(f"\nTEST  exact {results['exact_match']:.4f} | severity acc {results['severity_acc']:.4f} | "
           f"MAE {results['score_mae']:.3f} | {results['ms_per_cve']:.3f} ms/CVE")
-    print(f"Training time: {(time.time() - t_start) / 60:.1f} min")
+    print(f"Total time: {(time.time() - t_start) / 60:.1f} min")
 
 
 if __name__ == "__main__":

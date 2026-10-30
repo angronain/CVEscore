@@ -1,0 +1,12 @@
+data/raw/
+data/processed/
+checkpoints/
+results/*.parquet
+results/*.npz
+results/llm_raw.jsonl
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.gradio/

@@ -1,0 +1,9 @@
+.git
+.venv
+data
+results
+checkpoints
+.env
+__pycache__
+*.pyc
+.DS_Store

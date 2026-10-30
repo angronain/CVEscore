@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
@@ -75,9 +76,8 @@ def predict_proba(model, tokenizer, texts: list[str], max_length: int = 256,
     return {k: torch.cat(v).numpy()[inverse] for k, v in probs.items()}
 
 
-def probs_to_frame(probs: dict[str, np.ndarray]):
+def probs_to_frame(probs: dict[str, np.ndarray]) -> pd.DataFrame:
     """Turn probabilities into a DataFrame of predicted letters + vector confidence."""
-    import pandas as pd
     pred = {k: np.array(LABELS[k])[p.argmax(1)] for k, p in probs.items()}
     conf = np.prod([p.max(1) for p in probs.values()], axis=0)
     df = pd.DataFrame(pred)

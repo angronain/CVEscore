@@ -35,6 +35,7 @@ def get(url: str, retries: int = 4) -> bytes:
 
 
 def parse_meta(text: str) -> dict:
+    # .meta files look like "sha256:ABC123...", one key per line
     return {k.strip(): v.strip() for k, v in
             (line.split(":", 1) for line in text.strip().splitlines() if ":" in line)}
 

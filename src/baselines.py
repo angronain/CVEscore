@@ -23,7 +23,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score
 
 METRICS = ["AV", "AC", "PR", "UI", "S", "C", "I", "A"]
-SEVERITIES = ["None", "Low", "Medium", "High", "Critical"]
 
 
 # ---------- CVSS helpers ----------
@@ -36,7 +35,7 @@ def build_vectors(df: pd.DataFrame) -> pd.Series:
     return vec
 
 
-@lru_cache(maxsize=None)   # only ~2.6k distinct vectors exist, so caching makes this instant
+@lru_cache(maxsize=None)   # only 2,592 distinct vectors exist, so caching makes this instant
 def score_vector(vector: str) -> tuple[float, str]:
     c = CVSS3(vector)
     return float(c.scores()[0]), c.severities()[0]
@@ -83,7 +82,7 @@ def majority_baseline(train: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataF
 
 
 def fit_one(X, y, C: float) -> LogisticRegression:
-    return LogisticRegression(C=C, max_iter=1000, class_weight=None).fit(X, y)
+    return LogisticRegression(C=C, max_iter=1000).fit(X, y)
 
 
 def tfidf_baseline(train, test, max_features: int, C: float, n_jobs: int):
@@ -129,7 +128,7 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=Path("results"))
     p.add_argument("--max-features", type=int, default=200_000)
     p.add_argument("--C", type=float, default=4.0)
-    p.add_argument("--n-jobs", type=int, default=-1)
+    p.add_argument("--n-jobs", type=int, default=8)
     p.add_argument("--source", choices=["all", "Primary", "Secondary"], default="all",
                    help="restrict the test set to NVD-scored (Primary) or CNA-scored (Secondary) CVEs")
     args = p.parse_args()
@@ -145,14 +144,15 @@ def main() -> None:
     results = {}
     for name, run in [
         ("majority", lambda: majority_baseline(train, test)),
-        ("tfidf_logreg", lambda: tfidf_baseline(train, test, args.max_features, args.C, args.n_jobs)),
+        ("tfidf", lambda: tfidf_baseline(train, test, args.max_features, args.C, args.n_jobs)),
     ]:
         print(f"\n[{name}]")
         pred, seconds = run()
         pred["vector"] = build_vectors(pred)
         pred = add_scores(pred)
         results[name] = evaluate(test, pred, seconds)
-        save_preds(name, test, pred, args.out)
+        if args.source == "all":
+            save_preds(name, test, pred, args.out)
 
     suffix = "" if args.source == "all" else f"_{args.source.lower()}"
     (args.out / f"baselines{suffix}.json").write_text(json.dumps(results, indent=2))
