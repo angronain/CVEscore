@@ -5,7 +5,12 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/cache/huggingface \
     MPLCONFIGDIR=/tmp/matplotlib \
     HOME=/tmp \
+    USER=cvescore \
+    LOGNAME=cvescore \
+    TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor \
     TOKENIZERS_PARALLELISM=false
+# USER/LOGNAME: compose runs as your UID, which has no /etc/passwd entry in the image.
+# Without them, getpass.getuser() (called by torch on import) crashes with "uid not found".
 
 WORKDIR /app
 
