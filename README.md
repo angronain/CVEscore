@@ -2,7 +2,7 @@
 
 Predict the full **CVSS v3.1 base vector** (AV, AC, PR, UI, S, C, I, A) of a vulnerability from its raw CVE description, then compute its base score and severity with the official formula.
 
-**Model:** [huggingface.co/atomic-crafter/cvescore-deberta](https://huggingface.co/atomic-crafter/cvescore-deberta)
+**Model:** [huggingface.co/angronain/cvescore-deberta](https://huggingface.co/angronain/cvescore-deberta)
 
 ## Results
 
