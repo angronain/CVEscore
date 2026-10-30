@@ -80,7 +80,7 @@
     "score_mae": 1.094,
     "severity_acc": 0.6208,
     "severity_macro_f1": 0.3969,
-    "ms_per_cve": 0.0408,
+    "ms_per_cve": 0.0513,
     "n_test": 123460
   }
 }
