@@ -3,6 +3,7 @@
 
 Usage:
     HF_TOKEN=hf_xxx python scripts/push_to_hub.py --repo <your-username>/cvescore-deberta
+    HF_TOKEN=hf_xxx python scripts/push_to_hub.py --repo <...> --run-name v2_tokens --tagged
 """
 import argparse
 import json
@@ -23,13 +24,13 @@ base_model: {base_model}
 
 Fine-tuned `{base_model}` with 8 classification heads (AV, AC, PR, UI, S, C, I, A).
 The base score and severity are computed from the predicted vector with the official CVSS v3.1 formula.
-
+{input_format}
 ## Training data and split
 NVD CVE JSON 2.0 feeds, CVEs with a CVSS v3.1 vector (NVD score preferred, CNA score otherwise).
 **Time-based split**: train on CVEs published before {val_start}, validate up to the end of 2024,
 test on CVEs published from 2025 onwards. No random split, so no leakage from the future.
 
-## Test results ({n_test:,} CVEs published in 2025+)
+## Test results ({n_test:,} CVEs published in 2025+{prompt_note})
 | Metric | Value |
 |---|---|
 | Exact vector match | {exact:.3f} |
@@ -46,7 +47,8 @@ Not a replacement for analyst scoring.
 
 ## Limitations
 - English descriptions only; vague descriptions ("unspecified vulnerability") are scored poorly.
-- Labels mix NVD and vendor (CNA) scores, which sometimes disagree.
+- NVD and vendor (CNA) scores disagree on most CVEs scored by both (18% exact agreement in 2025+),
+  which caps achievable accuracy.
 - CVSS v3.1 only (no v4.0).
 
 ## Usage
@@ -58,6 +60,22 @@ model, tokenizer, config = CVSSModel.load("path/to/this/repo", device="cuda")
 ```
 """
 
+TAGGED = """
+## Input format
+Prefix the description with who will score the CVE, as in training:
+
+- `[NVD] <description>` predicts the vector NVD would give.
+- `[CNA: <org>] <description>` predicts the vector that CNA would give. `<org>` is the domain of the CNA's
+  email without the TLD (`security@wordfence.com` -> `wordfence`), or `cisa-adp` for CISA's ADP.
+
+Remove CVSS vectors and scores quoted in the description first (`strip_cvss` in `src/cvss_text.py`):
+the model was trained without them.
+
+With every CVE prompted as `[NVD]`, exact match is 0.393 overall (0.552 on NVD-scored CVEs).
+Tagging each CVE with its real scorer raises CNA-scored exact match from 0.339 to 0.438.
+Ablation: https://github.com/atomic-crafter/CVEscore/blob/master/results/ablation.md
+"""
+
 
 def main() -> None:
     p = argparse.ArgumentParser()
@@ -66,12 +84,14 @@ def main() -> None:
     p.add_argument("--ckpt", type=Path, default=Path("checkpoints"))
     p.add_argument("--results", type=Path, default=Path("results"))
     p.add_argument("--private", action="store_true")
+    p.add_argument("--tagged", action="store_true", help="model trained with scorer tokens (make_variants.py tokens)")
     args = p.parse_args()
 
     run_dir = args.ckpt / args.run_name
     cfg = json.loads((run_dir / "cvss_config.json").read_text())
     res = json.loads((args.results / f"{args.run_name}.json").read_text())["test"]
     (run_dir / "README.md").write_text(CARD.format(
+        input_format=TAGGED if args.tagged else "", prompt_note=", each tagged with its scorer" if args.tagged else "",
         base_model=cfg["base_model"], val_start=cfg["val_start"], n_test=res["n_test"],
         exact=res["exact_match"], sev=res["severity_acc"], mae=res["score_mae"], ms=res["ms_per_cve"],
         per_metric=", ".join(f"{k} {v['macro_f1']:.3f}" for k, v in res["per_metric"].items()),

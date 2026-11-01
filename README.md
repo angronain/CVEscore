@@ -2,7 +2,7 @@
 
 Predict the full **CVSS v3.1 base vector** (AV, AC, PR, UI, S, C, I, A) of a vulnerability from its raw CVE description, then compute its base score and severity with the official formula.
 
-**Model:** [huggingface.co/angronain/cvescore-deberta](https://huggingface.co/angronain/cvescore-deberta)
+**Model:** [huggingface.co/angronain/cvescore-deberta](https://huggingface.co/angronain/cvescore-deberta) (v2 scorer-token model; v1 is in the repo history)
 
 ## Results
 
@@ -43,7 +43,7 @@ Most of the remaining error comes from the labels themselves, not the model. On 
 | System | NVD-scored exact | CNA-scored exact | All exact | All severity | All MAE |
 |---|---|---|---|---|---|
 | TF-IDF + LogReg (clean text) | 0.485 | 0.349 | 0.384 | 0.623 | 1.09 |
-| v1 (raw text, published model) | 0.546 | 0.351 | 0.401 | 0.629 | 1.04 |
+| v1 (raw text) | 0.546 | 0.351 | 0.401 | 0.629 | 1.04 |
 | v2 base (clean text) | **0.558** | 0.335 | 0.392 | 0.613 | 1.06 |
 | + label correction | 0.555 | 0.338 | 0.394 | 0.617 | 1.06 |
 | + scorer tokens | 0.552 | **0.438** | **0.467** | 0.691 | 0.86 |
@@ -53,7 +53,7 @@ Most of the remaining error comes from the labels themselves, not the model. On 
 - **Label correction** uses a second model, the corrector. It reads the CNA's vector, the CNA's identity and the description, and predicts NVD's vector. On test CVEs scored by both, it gets **0.597 exact**, against 0.431 for a per-CNA lookup table and 0.181 for copying the CNA's vector. It rewrote 22% of the CNA-only training vectors, but that changed nothing measurable on the main task (−0.3 pts on NVD-scored CVEs, CI includes 0). With 120k NVD labels already in training, 17k relabelled rows add little.
 - **Removing quoted vectors costs almost nothing.** v2 base beats v1 on NVD-scored CVEs (+1.2 pts) and loses 1.6 pts on CNA-scored ones, where some vendors quoted the answer.
 
-Full tables, per-metric corrector accuracy and bootstrap intervals: [`results/ablation.md`](results/ablation.md) (from `scripts/ablation_report.py`). The published model is still v1.
+Full tables, per-metric corrector accuracy and bootstrap intervals: [`results/ablation.md`](results/ablation.md) (from `scripts/ablation_report.py`). The Hugging Face model is the scorer-token model; its card explains the `[NVD]` / `[CNA: org]` prefix.
 
 ## Why this project
 
