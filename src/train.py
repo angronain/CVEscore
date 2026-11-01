@@ -80,6 +80,9 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=None, help="subsample train/val/test for a quick smoke test")
     p.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="cpu only for smoke tests")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--test-files", nargs="+", default=["test.parquet"],
+                   help="files in --data to predict; the first one is the reported test set, the others "
+                        "write preds_<run-name>_<suffix> (test_nvd.parquet -> _nvd)")
     args = p.parse_args()
 
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
@@ -92,15 +95,17 @@ def main() -> None:
 
     # ---- Data: time-based train / validation / test ----
     full = pd.read_parquet(args.data / "train.parquet")
-    test = pd.read_parquet(args.data / "test.parquet")
-    val = full[full["published"] >= args.val_start].reset_index(drop=True)
+    tests = {f: pd.read_parquet(args.data / f) for f in args.test_files}
+    # Extra labels for an already-present CVE (make_variants.py) train the model but never validate it
+    aux = full["is_aux"].values if "is_aux" in full else np.zeros(len(full), bool)
+    val = full[(full["published"] >= args.val_start) & ~aux].reset_index(drop=True)
     train = full[full["published"] < args.val_start].reset_index(drop=True)
     if args.limit:
         train = train.sample(min(args.limit, len(train)), random_state=args.seed)
         val = val.sample(min(max(args.limit // 4, 1), len(val)), random_state=args.seed)
-        test = test.sample(min(max(args.limit // 4, 1), len(test)), random_state=args.seed)
-    test = add_scores(test.reset_index(drop=True))
-    print(f"train {len(train):,} | val {len(val):,} | test {len(test):,}")
+        tests = {f: t.sample(min(max(args.limit // 4, 1), len(t)), random_state=args.seed) for f, t in tests.items()}
+    tests = {f: add_scores(t.reset_index(drop=True)) for f, t in tests.items()}
+    print(f"train {len(train):,} | val {len(val):,} | " + " | ".join(f"{f} {len(t):,}" for f, t in tests.items()))
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     train_ds = CVEDataset(train, tokenizer, args.max_length)
@@ -165,28 +170,34 @@ def main() -> None:
     if device == "cuda":
         torch.cuda.empty_cache()
     model, tokenizer, _ = CVSSModel.load(run_dir, device)
-    texts = test["description"].tolist()
-    predict_proba(model, tokenizer, texts[:256], args.max_length, device=device)   # warmup
-    if device == "cuda":
-        torch.cuda.synchronize()
-    t0 = time.perf_counter()
-    probs = predict_proba(model, tokenizer, texts, args.max_length, device=device)
-    if device == "cuda":
-        torch.cuda.synchronize()
-    seconds = time.perf_counter() - t0
-
-    pred = probs_to_frame(probs)
-    pred["vector"] = build_vectors(pred)
-    pred = add_scores(pred)
-    results = evaluate(test, pred, seconds)
     args.out.mkdir(parents=True, exist_ok=True)
-    save_preds(args.run_name, test, pred, args.out)
-    np.savez(args.out / f"probs_{args.run_name}.npz", ids=test["id"].values, **probs)
-    (args.out / f"{args.run_name}.json").write_text(json.dumps(
-        {"args": {k: str(v) for k, v in vars(args).items()}, "history": history, "test": results}, indent=2))
+    all_results = {}
+    for i, (f, test) in enumerate(tests.items()):
+        name = args.run_name if i == 0 else f"{args.run_name}_{Path(f).stem.removeprefix('test_')}"
+        texts = test["description"].tolist()
+        predict_proba(model, tokenizer, texts[:256], args.max_length, device=device)   # warmup
+        if device == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        probs = predict_proba(model, tokenizer, texts, args.max_length, device=device)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        seconds = time.perf_counter() - t0
 
-    print(f"\nTEST  exact {results['exact_match']:.4f} | severity acc {results['severity_acc']:.4f} | "
-          f"MAE {results['score_mae']:.3f} | {results['ms_per_cve']:.3f} ms/CVE")
+        pred = probs_to_frame(probs)
+        pred["vector"] = build_vectors(pred)
+        pred = add_scores(pred)
+        results = evaluate(test, pred, seconds)
+        save_preds(name, test, pred, args.out)
+        np.savez(args.out / f"probs_{name}.npz", ids=test["id"].values, **probs)
+        all_results[name] = results
+        print(f"\nTEST {f}  exact {results['exact_match']:.4f} | severity acc {results['severity_acc']:.4f} | "
+              f"MAE {results['score_mae']:.3f} | {results['ms_per_cve']:.3f} ms/CVE")
+
+    (args.out / f"{args.run_name}.json").write_text(json.dumps(
+        {"args": {k: str(v) for k, v in vars(args).items()}, "history": history,
+         "test": all_results[args.run_name], "other_tests": {k: v for k, v in all_results.items() if k != args.run_name}},
+        indent=2))
     print(f"Total time: {(time.time() - t_start) / 60:.1f} min")
 
 

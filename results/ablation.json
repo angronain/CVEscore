@@ -1,0 +1,260 @@
+{
+  "corrector": [
+    {
+      "Method": "Copy the CNA vector",
+      "Exact": 0.18110817941952506,
+      "AV": 0.9358311345646438,
+      "AC": 0.8553034300791557,
+      "PR": 0.8111345646437995,
+      "UI": 0.9069129287598945,
+      "S": 0.8493403693931398,
+      "C": 0.5832717678100264,
+      "I": 0.6311873350923483,
+      "A": 0.6331926121372031
+    },
+    {
+      "Method": "Lookup table (scorer \u00d7 value)",
+      "Exact": 0.43076517150395777,
+      "AV": 0.9564643799472295,
+      "AC": 0.9486543535620052,
+      "PR": 0.7878627968337731,
+      "UI": 0.9198944591029024,
+      "S": 0.8693403693931399,
+      "C": 0.809287598944591,
+      "I": 0.8,
+      "A": 0.8789973614775726
+    },
+    {
+      "Method": "DeBERTa corrector (ours)",
+      "Exact": 0.5972031662269129,
+      "AV": 0.960580474934037,
+      "AC": 0.9675461741424802,
+      "PR": 0.8437994722955146,
+      "UI": 0.9520844327176781,
+      "S": 0.9629023746701847,
+      "C": 0.885646437994723,
+      "I": 0.8875989445910291,
+      "A": 0.9080211081794195
+    }
+  ],
+  "ablation": [
+    {
+      "System": "TF-IDF + LogReg",
+      "Prompt": "\u2013",
+      "NVD-scored exact": 0.4849089469517023,
+      "NVD-scored sev": 0.6783214568487728,
+      "NVD-scored MAE": 0.8742929532858275,
+      "CNA-scored exact": 0.3492664664141744,
+      "CNA-scored sev": 0.6044033781724784,
+      "CNA-scored MAE": 1.1660615558747986,
+      "All exact": 0.3839574271620538,
+      "All sev": 0.6233081427842442,
+      "All MAE": 1.0914408832081908
+    },
+    {
+      "System": "v1 (raw descriptions)",
+      "Prompt": "\u2013",
+      "NVD-scored exact": 0.5458749010292954,
+      "NVD-scored sev": 0.7095170229612034,
+      "NVD-scored MAE": 0.7381377672209027,
+      "CNA-scored exact": 0.3509098428453267,
+      "CNA-scored sev": 0.6015193069522441,
+      "CNA-scored MAE": 1.1383722955030258,
+      "All exact": 0.4007727261682016,
+      "All sev": 0.6291400383933128,
+      "All MAE": 1.0360111454004974
+    },
+    {
+      "System": "v2 base",
+      "Prompt": "\u2013",
+      "NVD-scored exact": 0.5579097387173396,
+      "NVD-scored sev": 0.7195882818685669,
+      "NVD-scored MAE": 0.7093808392715757,
+      "CNA-scored exact": 0.33468286099865047,
+      "CNA-scored sev": 0.5762591963780419,
+      "CNA-scored MAE": 1.185406599625615,
+      "All exact": 0.39177378724920825,
+      "All sev": 0.6129160288030844,
+      "All MAE": 1.063661620456994
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "[NVD]",
+      "NVD-scored exact": 0.5517339667458432,
+      "NVD-scored sev": 0.7133174980205859,
+      "NVD-scored MAE": 0.725304829770388,
+      "CNA-scored exact": 0.33877497714509597,
+      "CNA-scored sev": 0.58900352618519,
+      "CNA-scored MAE": 1.1655707196029779,
+      "All exact": 0.393239861006488,
+      "All sev": 0.6207971877303397,
+      "All MAE": 1.0529714318113708
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "matched",
+      "NVD-scored exact": 0.5517973079968329,
+      "NVD-scored sev": 0.7135391923990498,
+      "NVD-scored MAE": 0.7251369754552652,
+      "CNA-scored exact": 0.4375734621914588,
+      "CNA-scored sev": 0.6836663619346132,
+      "CNA-scored MAE": 0.9056941360846285,
+      "All exact": 0.46678654452085305,
+      "All sev": 0.6913064256149815,
+      "All MAE": 0.8595161146615476
+    },
+    {
+      "System": "+ label correction",
+      "Prompt": "\u2013",
+      "NVD-scored exact": 0.5551227236737926,
+      "NVD-scored sev": 0.7173396674584323,
+      "NVD-scored MAE": 0.7288994457640539,
+      "CNA-scored exact": 0.33833964564015495,
+      "CNA-scored sev": 0.5825062034739454,
+      "CNA-scored MAE": 1.175428801532367,
+      "All exact": 0.39378255129233186,
+      "All sev": 0.6169902558744198,
+      "All MAE": 1.061227614025709
+    },
+    {
+      "System": "+ both",
+      "Prompt": "[NVD]",
+      "NVD-scored exact": 0.5520506730007918,
+      "NVD-scored sev": 0.7140775930324624,
+      "NVD-scored MAE": 0.7230783847980998,
+      "CNA-scored exact": 0.3414522659004832,
+      "CNA-scored sev": 0.5891776587871664,
+      "CNA-scored MAE": 1.1616233511819252,
+      "All exact": 0.39531342388971236,
+      "All sev": 0.6211211819308434,
+      "All MAE": 1.0494641945909169
+    },
+    {
+      "System": "+ both",
+      "Prompt": "matched",
+      "NVD-scored exact": 0.5522406967537609,
+      "NVD-scored sev": 0.7142676167854315,
+      "NVD-scored MAE": 0.7225463182897862,
+      "CNA-scored exact": 0.4319903356405903,
+      "CNA-scored sev": 0.6862892342518828,
+      "CNA-scored MAE": 0.8996310565495624,
+      "All exact": 0.46274471686956803,
+      "All sev": 0.6934447873383066,
+      "All MAE": 0.8543411172940005
+    }
+  ],
+  "bootstrap_vs_base": [
+    {
+      "System": "TF-IDF + LogReg",
+      "Prompt": "\u2013",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.07300079176563737,
+      "95% CI low": -0.07800475059382422,
+      "95% CI high": -0.06846951702296121
+    },
+    {
+      "System": "TF-IDF + LogReg",
+      "Prompt": "\u2013",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.014583605415523922,
+      "95% CI low": 0.012286687562578903,
+      "95% CI high": 0.01681467937834661
+    },
+    {
+      "System": "v1 (raw descriptions)",
+      "Prompt": "\u2013",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.012034837688044338,
+      "95% CI low": -0.015296912114014252,
+      "95% CI high": -0.008485352335708633
+    },
+    {
+      "System": "v1 (raw descriptions)",
+      "Prompt": "\u2013",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.016226981846676244,
+      "95% CI low": 0.014495450785773367,
+      "95% CI high": 0.017826825127334467
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "[NVD]",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.006175771971496437,
+      "95% CI low": -0.009946159936658748,
+      "95% CI high": -0.0025653206650831355
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "[NVD]",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.004092116146445518,
+      "95% CI low": 0.0024052065647990947,
+      "95% CI high": 0.005659581646423751
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "matched",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.00611243072050673,
+      "95% CI low": -0.009945368171021377,
+      "95% CI high": -0.0024386381631037214
+    },
+    {
+      "System": "+ scorer tokens",
+      "Prompt": "matched",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.10289060119280832,
+      "95% CI low": 0.10007155761612468,
+      "95% CI high": 0.10549306734578381
+    },
+    {
+      "System": "+ label correction",
+      "Prompt": "\u2013",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.0027870150435471103,
+      "95% CI low": -0.00601821060965954,
+      "95% CI high": 0.0002850356294536817
+    },
+    {
+      "System": "+ label correction",
+      "Prompt": "\u2013",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.0036567846415045055,
+      "95% CI low": 0.0022963736885638414,
+      "95% CI high": 0.004930129293456967
+    },
+    {
+      "System": "+ both",
+      "Prompt": "[NVD]",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.005859065716547902,
+      "95% CI low": -0.009311955661124307,
+      "95% CI high": -0.0024378463974663507
+    },
+    {
+      "System": "+ both",
+      "Prompt": "[NVD]",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.006769404901832745,
+      "95% CI low": 0.005223705977101562,
+      "95% CI high": 0.008349114100387444
+    },
+    {
+      "System": "+ both",
+      "Prompt": "matched",
+      "Subset": "NVD-scored",
+      "\u0394 exact vs base": -0.005669041963578781,
+      "95% CI low": -0.00903008709422011,
+      "95% CI high": -0.0022478226444972295
+    },
+    {
+      "System": "+ both",
+      "Prompt": "matched",
+      "Subset": "CNA-scored",
+      "\u0394 exact vs base": 0.09730747464193984,
+      "95% CI low": 0.0945319642157503,
+      "95% CI high": 0.10006094641069174
+    }
+  ]
+}

@@ -15,7 +15,15 @@ from pathlib import Path
 
 import pandas as pd
 
-METRICS = ["AV", "AC", "PR", "UI", "S", "C", "I", "A"]
+from cvss_text import METRICS, find_vector, strip_cvss
+
+
+def parse_vector(vector: str) -> dict | None:
+    try:
+        parts = dict(p.split(":") for p in vector.split("/")[1:])
+        return {k: parts[k] for k in METRICS}
+    except (KeyError, ValueError):
+        return None   # malformed vector
 
 
 def parse_feed(path: Path) -> list[dict]:
@@ -26,29 +34,38 @@ def parse_feed(path: Path) -> list[dict]:
         cve = item["cve"]
         if cve.get("vulnStatus") == "Rejected":
             continue
-        m31 = cve.get("metrics", {}).get("cvssMetricV31", [])
+        m31 = [x for x in cve.get("metrics", {}).get("cvssMetricV31", [])
+               if parse_vector(x["cvssData"]["vectorString"])]
         if not m31:
             continue
-        # Prefer NVD's own score (Primary); fall back to the CNA's (Secondary)
-        m = next((x for x in m31 if x.get("type") == "Primary"), m31[0])
         desc = next((d["value"] for d in cve.get("descriptions", []) if d.get("lang") == "en"), None)
         if not desc or desc.startswith("** REJECT"):
             continue
+        # Keep both scorers' vectors: NVD's own (Primary) and the CNA's (Secondary, from the CNA that
+        # published the CVE when it scored it, else an ADP such as CISA). The label prefers NVD.
+        nvd = next((x for x in m31 if x.get("type") == "Primary"), None)
+        secondary = [x for x in m31 if x.get("type") == "Secondary"]
+        cna = next((x for x in secondary if x.get("source") == cve.get("sourceIdentifier")), None)
+        cna = cna or (secondary[0] if secondary else None)
+        m = nvd or cna or m31[0]
         vector = m["cvssData"]["vectorString"]
-        try:
-            parts = dict(p.split(":") for p in vector.split("/")[1:])
-            labels = {k: parts[k] for k in METRICS}
-        except (KeyError, ValueError):
-            continue   # malformed vector
+        desc = " ".join(desc.split())   # normalize whitespace
         rows.append({
             "id": cve["id"],
             "published": cve["published"],
-            "description": " ".join(desc.split()),   # normalize whitespace
+            "description": strip_cvss(desc),   # no quoted scores/vectors: the model must not read the answer
+            "description_raw": desc,
+            "text_vector": find_vector(desc),
             "vector": vector,
             "nvd_score": m["cvssData"]["baseScore"],
             "source": m.get("type", "Unknown"),
             "scorer": m.get("source", ""),
-            **labels,
+            "cna": cve.get("sourceIdentifier", ""),
+            "nvd_vector": nvd["cvssData"]["vectorString"] if nvd else None,
+            "cna_vector": cna["cvssData"]["vectorString"] if cna else None,
+            "cna_scorer": cna.get("source", "") if cna else None,
+            "cna_is_adp": bool(cna) and cna.get("source") != cve.get("sourceIdentifier"),
+            **parse_vector(vector),
         })
     return rows
 
@@ -90,6 +107,10 @@ def main() -> None:
     print(f"Test:  {len(test):,} CVEs (published >= {args.test_start}, "
           f"{leaked.sum():,} exact-duplicate descriptions removed)")
     print("Test scored by:", test["source"].value_counts().to_dict())
+    for name, d in [("train", train), ("test", test)]:
+        both = d["nvd_vector"].notna() & d["cna_vector"].notna()
+        print(f"{name}: {both.sum():,} CVEs with both an NVD and a CNA/ADP vector, "
+              f"{d['text_vector'].notna().sum():,} quoting a v3.x vector in the description")
     print("\nLabel distribution (train):")
     for k in METRICS:
         print(f"  {k:>2}: " + "  ".join(f"{v}={c:.1%}" for v, c in train[k].value_counts(normalize=True).items()))

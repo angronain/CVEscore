@@ -1,8 +1,10 @@
 data/raw/
 data/processed/
+data/variants/
 checkpoints/
 results/*.parquet
 results/*.npz
+results/**/*.parquet
 results/llm_raw.jsonl
 .env
 .venv/
