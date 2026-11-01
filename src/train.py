@@ -107,6 +107,8 @@ def main() -> None:
     tests = {f: add_scores(t.reset_index(drop=True)) for f, t in tests.items()}
     print(f"train {len(train):,} | val {len(val):,} | " + " | ".join(f"{f} {len(t):,}" for f, t in tests.items()))
 
+    # Inputs prefixed with "[NVD] " / "[CNA: org] " (make_variants.py tokens/both): the demo must add one too
+    scorer_tokens = bool(train["description"].str.startswith(("[NVD] ", "[CNA: ")).all())
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     train_ds = CVEDataset(train, tokenizer, args.max_length)
     loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
@@ -160,7 +162,8 @@ def main() -> None:
                 if metrics["mean_macro_f1"] > best:
                     best = metrics["mean_macro_f1"]
                     model.save(run_dir, tokenizer, {"base_model": args.model, "max_length": args.max_length,
-                                                    "val_start": args.val_start, "best_val": metrics})
+                                                    "val_start": args.val_start, "scorer_tokens": scorer_tokens,
+                                                    "best_val": metrics})
                     print(f"  saved best checkpoint to {run_dir}", flush=True)
                 model.train()
 

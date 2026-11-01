@@ -28,24 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cvss_text import METRICS
+from cvss_text import METRICS, tag
 from model import LABELS
-
-# ADPs and some CNAs are identified by UUID in the feeds
-KNOWN_SCORERS = {"134c704f-9b21-4f2e-91b3-4a467353bcc0": "cisa-adp"}
-
-
-def scorer_name(scorer: str) -> str:
-    if scorer in KNOWN_SCORERS:
-        return KNOWN_SCORERS[scorer]
-    if "@" in scorer:
-        return scorer.split("@")[1].rsplit(".", 1)[0]          # security@wordfence.com -> wordfence
-    return scorer[:8]
-
-
-def tag(scorer: str | None) -> str:
-    return "[NVD]" if scorer is None else f"[CNA: {scorer_name(scorer)}]"
-
 
 def labels_of(vectors: pd.Series) -> pd.DataFrame:
     parts = vectors.map(lambda v: dict(p.split(":") for p in v.split("/")[1:]))

@@ -76,7 +76,7 @@ make data                     # download NVD feeds + build train/test (~10 min)
 make smoke                    # 1-minute GPU check
 make pipeline                 # baselines + training + evaluation
 make pipeline-llm             # same, plus the LM Studio zero-shot baseline
-make demo                     # Gradio demo on http://localhost:7860
+make demo                     # Gradio demo on http://localhost:7860 (RUN_NAME=v2_tokens in .env for v2)
 make push                     # upload model + model card to Hugging Face
 ```
 

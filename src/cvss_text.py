@@ -1,4 +1,5 @@
-"""Find and strip CVSS scores/vectors that some CNAs paste into the CVE description itself.
+"""Find and strip CVSS scores/vectors that some CNAs paste into the CVE description itself,
+and build the scorer tags ("[NVD]", "[CNA: wordfence]") that v2 models read before the description.
 
 Training on them lets the model copy the answer; at inference a quoted v3.x vector can be returned
 as is. About 5% of descriptions contain one (mostly Oracle, Concrete CMS, Atlassian, runZero).
@@ -36,3 +37,19 @@ def strip_cvss(text: str) -> str:
     t = re.sub(r"\s+([.,;:)])", r"\1", t)              # tidy " ." left behind
     t = re.sub(r"\(\s*\)|\.\s*\.", lambda m: "" if m.group(0).startswith("(") else ".", t)
     return " ".join(t.split())
+
+
+# ADPs and some CNAs are identified by UUID in the feeds
+KNOWN_SCORERS = {"134c704f-9b21-4f2e-91b3-4a467353bcc0": "cisa-adp"}
+
+
+def scorer_name(scorer: str) -> str:
+    if scorer in KNOWN_SCORERS:
+        return KNOWN_SCORERS[scorer]
+    if "@" in scorer:
+        return scorer.split("@")[1].rsplit(".", 1)[0]          # security@wordfence.com -> wordfence
+    return scorer[:8]
+
+
+def tag(scorer: str | None) -> str:
+    return "[NVD]" if scorer is None else f"[CNA: {scorer_name(scorer)}]"
