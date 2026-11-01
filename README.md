@@ -6,33 +6,36 @@ Predict the full **CVSS v3.1 base vector** (AV, AC, PR, UI, S, C, I, A) of a vul
 
 ## Results
 
-Trained on 143,380 CVEs published before 2025, tested on **123,460 CVEs published from 2025-01-01 to 2026-10-30**: data the model has never seen, from the future relative to training.
+Trained on 143,380 CVEs published before 2025, tested on **123,459 CVEs published from 2025-01-01 to 2026-10-30**: data the model has never seen, from the future relative to training. CVSS vectors and scores quoted in descriptions are removed before training and prediction.
+
+The published model reads who scores the CVE before its description: `[NVD] ...` or `[CNA: wordfence] ...`. The scoring organisation is known when a CVE is published. Below, each test CVE is tagged with its real scorer.
 
 | System | Exact vector | Severity acc. | Score MAE | Mean macro F1 (8 metrics) | ms/CVE |
 |---|---|---|---|---|---|
 | Majority class | 0.083 | 0.128 | 2.84 | 0.303 | <0.01 |
-| TF-IDF + LogReg | 0.386 | 0.621 | 1.09 | 0.754 | 0.05 (CPU) |
-| **DeBERTa-v3-base (ours)** | **0.401** | **0.629** | **1.04** | **0.756** | 0.99 (RTX 5080) |
+| TF-IDF + LogReg | 0.384 | 0.623 | 1.09 | 0.754 | 0.05 (CPU) |
+| DeBERTa v1 (raw text, no scorer) | 0.401 | 0.629 | 1.04 | 0.756 | 0.99 (RTX 5080) |
+| **DeBERTa v2 + scorer tokens (ours)** | **0.467** | **0.691** | **0.86** | **0.803** | 1.01 (RTX 5080) |
 
 | | Exact vector | Severity acc. |
 |---|---|---|
-| CVEs scored by NVD (31,575) | 0.546 | 0.710 |
-| CVEs scored by the CNA/vendor (91,885) | 0.351 | 0.602 |
+| CVEs scored by NVD (31,575) | 0.552 | 0.714 |
+| CVEs scored by the CNA/vendor (91,884) | 0.438 | 0.684 |
 
-Per-metric macro F1, DeBERTa: AV 0.761 · AC 0.672 · PR 0.741 · UI 0.880 · S 0.843 · C 0.760 · I 0.764 · A 0.625.
+Per-metric macro F1, v2: AV 0.782 · AC 0.707 · PR 0.746 · UI 0.903 · S 0.851 · C 0.819 · I 0.819 · A 0.796.
 
 ![per-metric F1](results/per_metric_f1.png)
 
 ### Key findings
 
-1. **DeBERTa beats TF-IDF, but only slightly.** On the same CVEs, a paired bootstrap gives +1.5 pts exact-vector match (95% CI +1.3 to +1.7) and +0.8 pts severity accuracy (+0.6 to +1.1). Both gains are statistically real but small. A well-tuned bag-of-words model already captures most of what the descriptions reveal.
-2. **The model's edge grows over time.** In early 2025, TF-IDF actually matches it on exact vectors (0.471 vs 0.451 in Q1). From Q4 2025 on, DeBERTa leads by 2–3 pts every quarter (0.370 vs 0.338 in 2026 Q3): it generalises better as phrasing drifts away from the training data.
-3. **Accuracy drops mostly because NVD stopped scoring, not because the model decays.** NVD's own scores were 38% of test labels in early 2025 and are 8% by late 2026. CNA labels are much noisier: per-metric accuracy on C/I/A falls from about 0.86 (NVD) to about 0.75 (CNA). Some CNAs score very differently from the descriptions they publish: VulDB at 25% severity accuracy, Patchstack at 52%, versus Microsoft at 83% and Adobe at 91%.
-4. **Score is close even when the vector is wrong.** 62% of predictions are within ±1.0 of the true base score and 78% within ±2.0. Only 5.7% are off by two or more severity levels. The main error is High ↔ Medium/Critical confusion.
-5. **Confidence is informative, so triage works.** The 10% most confident predictions are 90% severity-accurate (81% exact vector); the 10% least confident are 42%. At a severity-accuracy target of 85%, **28% of new CVEs can be auto-scored**. At 80% the share is 40%, and at 95% it's 4%. When DeBERTa and TF-IDF predict the same vector (59% of CVEs), severity accuracy is 71% versus 51% when they disagree, so agreement between the two is a cheap second check.
-6. **Some descriptions quote the answer.** 3.6% of test descriptions, mostly Oracle's, include the CVSS vector (Oracle: 96% exact). Excluding them, DeBERTa scores 0.380 exact and 0.616 severity accuracy, and the ranking is unchanged.
+1. **Knowing the scorer is worth more than the encoder.** v1 beat TF-IDF by only +1.5 pts exact. v2 beats it by **+8.3 pts exact (95% CI +8.0 to +8.5)** and +6.8 pts severity accuracy (+6.5 to +7.1), in a paired bootstrap on the same CVEs. Almost all of the gain comes from CNA-scored CVEs. Each CNA scores in a consistent style that the model learns once it is told who is scoring (see [v2](#v2-who-scored-the-cve-matters-more-than-cleaner-labels)).
+2. **The lead holds every quarter.** v2 is 7–9 pts ahead of TF-IDF on exact vectors in every quarter: 0.559 vs 0.468 in 2025 Q1, 0.425 vs 0.338 in 2026 Q3.
+3. **Accuracy drops mostly because NVD stopped scoring, not because the model decays.** NVD's own scores were 38% of test labels in early 2025 and are 8% by late 2026. Agreement with CNAs varies widely: 97% exact for Oracle, 82% for Adobe, 69% for Wordfence and 56% for Microsoft, versus 25% for GitHub and Red Hat and 12% for MITRE.
+4. **Score is close even when the vector is wrong.** 69% of predictions are within ±1.0 of the true base score and 83% within ±2.0. Only 4.2% are off by two or more severity levels. The main error is High ↔ Medium/Critical confusion.
+5. **Confidence is informative, so triage works.** The 10% most confident predictions are 98% severity-accurate (96% exact vector); the 10% least confident are 41%. At a severity-accuracy target of 85%, **41% of new CVEs can be auto-scored**. At 80% the share is 60%, and at 95% it is 13% (v1: 28%, 40% and 4%). When v2 and TF-IDF predict the same vector (51% of CVEs), severity accuracy is 78% versus 60% when they disagree, so agreement between the two is a cheap second check.
+6. **Quoted answers are removed, and the model doesn't need them.** 3.6% of test descriptions, mostly Oracle's, quote a CVSS vector or score. v2 never sees those quotes. Excluding these CVEs anyway, it scores 0.448 exact and 0.680 severity accuracy. Oracle stays at 97% exact because its fixed description template ("Easily exploitable vulnerability allows unauthenticated attacker with network access via HTTP...") spells out the vector in words.
 
-Full tables: [`results/results.md`](results/results.md) (from `src/evaluate.py`) and [`results/analysis.md`](results/analysis.md) (from `scripts/analyze_results.py`: significance, confusion matrix, drift, per-CNA, calibration).
+Full tables: [`results/results.md`](results/results.md) (from `src/evaluate.py`) and [`results/analysis.md`](results/analysis.md) (from `scripts/analyze_results.py`: significance, confusion matrix, drift, per-CNA, calibration). v1 numbers are in the git history.
 
 ![coverage](results/coverage.png)
 

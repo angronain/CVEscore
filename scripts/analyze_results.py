@@ -4,6 +4,7 @@
 Usage:
     python scripts/analyze_results.py                 # compares deberta vs tfidf
     python scripts/analyze_results.py --model deberta --baseline tfidf
+    python scripts/analyze_results.py --model v2_tokens --baseline v2/tfidf   # README numbers
 
 Reads:  data/processed/test.parquet, results/preds_{model,baseline}.parquet
 Writes: results/analysis.md, results/analysis.json
@@ -18,6 +19,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from baselines import METRICS, add_scores  # noqa: E402
+from evaluate import preds_path  # noqa: E402
 
 SEVERITIES = ["None", "Low", "Medium", "High", "Critical"]
 
@@ -55,8 +57,8 @@ def main() -> None:
     args = p.parse_args()
 
     test = add_scores(pd.read_parquet(args.data / "test.parquet")).set_index("id")
-    m = pd.read_parquet(args.results / f"preds_{args.model}.parquet").set_index("id").loc[test.index]
-    b = pd.read_parquet(args.results / f"preds_{args.baseline}.parquet").set_index("id").loc[test.index]
+    m = pd.read_parquet(preds_path(args.results, args.model)).set_index("id").loc[test.index]
+    b = pd.read_parquet(preds_path(args.results, args.baseline)).set_index("id").loc[test.index]
 
     exact_m = (test[METRICS].values == m[METRICS].values).all(axis=1)
     exact_b = (test[METRICS].values == b[METRICS].values).all(axis=1)
@@ -156,7 +158,8 @@ def main() -> None:
     report += ["## 7. By description length (words)\n", md(ln), ""]
 
     # 8. Some descriptions (mostly Oracle's) spell out the vector itself; drop them to see the honest numbers
-    leak = test["description"].str.contains(r"CVSS:3\.1/AV:|CVSS 3\.\d Base Score", regex=True).values
+    raw = test["description_raw"] if "description_raw" in test else test["description"]   # v2 strips them
+    leak = raw.str.contains(r"CVSS:3\.1/AV:|CVSS 3\.\d Base Score", regex=True).values
     rows = [{"System": name, "Exact (all)": e.mean(), "Exact (no vector in text)": e[~leak].mean(),
              "Sev. acc (all)": s.mean(), "Sev. acc (no vector in text)": s[~leak].mean()}
             for name, e, s in [(args.model, exact_m, sev_m), (args.baseline, exact_b, sev_b)]]

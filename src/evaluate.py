@@ -4,8 +4,9 @@
 Usage:
     python src/evaluate.py
     python src/evaluate.py --target 0.95     # coverage needed for 95% severity accuracy
+    python src/evaluate.py --systems v2/majority v2/tfidf deberta v2_base v2_tokens   # README charts
 
-Reads:  data/processed/test.parquet, results/preds_*.parquet, results/*.json (for timings)
+Reads:  data/processed/test.parquet, results/[<dir>/]preds_*.parquet, results/[<dir>/]*.json (for timings)
 Writes: results/results.md, results/summary.json, results/coverage.png, results/per_metric_f1.png
 """
 import argparse
@@ -21,22 +22,31 @@ import pandas as pd
 from baselines import METRICS, add_scores, evaluate
 
 PRETTY = {"majority": "Majority class", "tfidf": "TF-IDF + LogReg", "llm": "Zero-shot LLM",
-          "deberta": "DeBERTa-v3 (ours)", "modernbert": "ModernBERT (ours)"}
+          "deberta": "DeBERTa v1 (raw text)", "modernbert": "ModernBERT (ours)",
+          "v2/majority": "Majority class", "v2/tfidf": "TF-IDF + LogReg",
+          "v2_base": "DeBERTa v2 base", "v2_tokens": "DeBERTa v2 + scorer tokens (ours)"}
 
 
 def load_timings(results_dir: Path) -> dict:
     """ms/CVE comes from the scripts that ran inference; pull it from their JSON outputs."""
     t = {}
-    for f in results_dir.glob("*.json"):
+    for f in [*results_dir.glob("*.json"), *results_dir.glob("*/*.json")]:
         if f.name in ("summary.json",):
             continue
+        prefix = "" if f.parent == results_dir else f"{f.parent.name}/"
         data = json.loads(f.read_text())
-        if "test" in data and "ms_per_cve" in data["test"]:            # train.py output
-            t[f.stem] = data["test"]["ms_per_cve"]
+        if isinstance(data.get("test"), dict) and "ms_per_cve" in data["test"]:   # train.py output
+            t[prefix + f.stem] = data["test"]["ms_per_cve"]
         for name, r in data.items():                                    # baselines / llm outputs
             if isinstance(r, dict) and "ms_per_cve" in r and name != "test":
-                t.setdefault(name, r["ms_per_cve"])
+                t.setdefault(prefix + name, r["ms_per_cve"])
     return t
+
+
+def preds_path(results_dir: Path, name: str) -> Path:
+    """'v2_tokens' -> results/preds_v2_tokens.parquet, 'v2/tfidf' -> results/v2/preds_tfidf.parquet"""
+    n = Path(name)
+    return results_dir / n.parent / f"preds_{n.name}.parquet"
 
 
 def aligned(test: pd.DataFrame, pred: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -89,15 +99,17 @@ def main() -> None:
     p.add_argument("--data", type=Path, default=Path("data/processed"))
     p.add_argument("--results", type=Path, default=Path("results"))
     p.add_argument("--target", type=float, default=0.95)
+    p.add_argument("--systems", nargs="+", help="preds to compare, e.g. v2/tfidf v2_tokens (default: all in results/)")
     args = p.parse_args()
 
     test = add_scores(pd.read_parquet(args.data / "test.parquet").reset_index(drop=True))
     timings = load_timings(args.results)
-    preds = {f.stem.removeprefix("preds_"): pd.read_parquet(f) for f in sorted(args.results.glob("preds_*.parquet"))}
+    names = args.systems or [f.stem.removeprefix("preds_") for f in sorted(args.results.glob("preds_*.parquet"))]
+    preds = {n: pd.read_parquet(preds_path(args.results, n)) for n in names}
     if not preds:
         raise SystemExit("No predictions found in results/. Run baselines.py and train.py first.")
 
-    full = {n: pr for n, pr in preds.items() if len(pr) == len(test)}
+    full = {n: pr for n, pr in preds.items() if test["id"].isin(pr["id"]).all()}
     report, summary = ["# CVEscore results\n",
                        f"Test set: {len(test):,} CVEs published from "
                        f"{test['published'].min():%Y-%m-%d} to {test['published'].max():%Y-%m-%d}. "
@@ -160,7 +172,7 @@ def main() -> None:
         a.grid(alpha=0.3)
         a.spines[["top", "right"]].set_visible(False)
     ax[0].axhline(args.target * 100, color="grey", linestyle="--", linewidth=1)
-    ax[0].legend(frameon=False)
+    ax[0].legend(frameon=False, loc="lower left")
     fig.tight_layout()
     fig.savefig(args.results / "coverage.png", dpi=150)
     if cov_rows:
@@ -170,7 +182,7 @@ def main() -> None:
                    md_table(pd.DataFrame(cov_rows)), "", "![coverage](coverage.png)", ""]
 
     # ---- Per-metric F1 plot ----
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(10, 4.6))
     names = list(full)
     width = 0.8 / len(names)
     x = np.arange(len(METRICS))
@@ -180,7 +192,7 @@ def main() -> None:
     ax.set_xticks(x, METRICS)
     ax.set_ylabel("Macro F1")
     ax.set_ylim(0, 1)
-    ax.legend(frameon=False, ncol=len(names))
+    ax.legend(frameon=False, ncol=min(len(names), 3), loc="lower center", bbox_to_anchor=(0.5, 1.0))
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     fig.savefig(args.results / "per_metric_f1.png", dpi=150)
